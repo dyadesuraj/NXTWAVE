@@ -1,0 +1,123 @@
+const express = require('express')
+const {open} = require('sqlite')
+const sqlite3 = require('sqlite3')
+const path = require('path')
+
+const app = express()
+app.use(express.json())
+
+let db = null
+let dbPath = path.join(__dirname, 'cricketMatchDetails.db')
+
+const initializeDBAndServer = async () => {
+  try {
+    db = await open({
+      filename: dbPath,
+      driver: sqlite3.Database,
+    })
+    app.listen(3000, () => {
+      console.log('Running Server at 3000')
+    })
+  } catch (e) {
+    console.log(`DB Error: ${e.message}`)
+  }
+}
+
+initializeDBAndServer()
+
+const convertBDObjectAndServer = dbobject => {
+  return {
+    playerId: dbobject.player_id,
+    playerName: dbobject.player_name,
+    matchId: dbobject.match_id,
+    playerMatchId: dbobject.player_match_id,
+    match: dbobject.match,
+    year: dbobject.year,
+    score: dbobject.score,
+    fours: dbobject.fours,
+    sixes: dbobject.sixes,
+    playerScore: dbobject.player_score,
+    totalFours: dbobject.total_fours,
+    totalSixes: dbobject.total_sixes,
+  }
+}
+
+//API 1
+app.get('/players/', async (request, response) => {
+  const getPlayersQuery = `select * from player_details order by player_id;`
+  const playersArray = await db.all(getPlayersQuery)
+  response.send(
+    playersArray.map(eachPlayer => convertBDObjectAndServer(eachPlayer)),
+  )
+})
+
+//API 2
+app.get('/players/:playerId/', async (request, response) => {
+  const {playerId} = request.params
+  const getPlayerQuery = `select * from player_details where player_id = ${playerId};`
+  const player = await db.get(getPlayerQuery)
+  response.send(convertBDObjectAndServer(player))
+})
+
+//API 3
+app.put('/players/:playerId/', async (request, response) => {
+  const {playerId} = request.params
+  const playerDetails = request.body
+  const {playerName} = playerDetails
+  const updatePlayerQuery = `update player_details set
+  player_name = '${playerName}' where player_id = ${playerId};`
+  await db.run(updatePlayerQuery)
+  response.send(`Player Details Updated`)
+})
+
+//API 4
+app.get('/matches/:matchId/', async (request, response) => {
+  const {matchId} = request.params
+  const getMatchQuery = `select * from match_details
+  where match_id = ${matchId};`
+  const match = await db.get(getMatchQuery)
+  response.send(convertBDObjectAndServer(match))
+})
+
+///API 5
+app.get('/players/:playerId/matches/', async (request, response) => {
+  const {playerId} = request.params
+  const getPlayerMatchesQuery = `select match_id, match, year from player_match_score natural join match_details
+  where player_id = ${playerId};`
+  const playerMatches = await db.all(getPlayerMatchesQuery)
+  response.send(
+    playerMatches.map(eachMatch => convertBDObjectAndServer(eachMatch)),
+  )
+})
+
+//API 6
+app.get('/matches/:matchId/players/', async (request, response) => {
+  const {matchId} = request.params
+  const getPlayersMatchQuery = `select 
+  player_details.player_id,
+	player_details.player_name
+  from player_match_score natural join player_details
+  where match_id = ${matchId};`
+  const playerMatch = await db.all(getPlayersMatchQuery)
+  response.send(
+    playerMatch.map(eachMatch => convertBDObjectAndServer(eachMatch)),
+  )
+})
+
+//API 7
+app.get('/players/:playerId/playerScores/', async (request, response) => {
+  const {playerId} = request.params
+  const getPlayerStats = `SELECT
+    player_details.player_id,
+    player_details.player_name,
+    SUM(player_match_score.score) as total_score,
+    SUM(fours) AS total_fours,
+    SUM(sixes) AS total_sixes FROM 
+    player_details INNER JOIN player_match_score ON
+    player_details.player_id = player_match_score.player_id
+    WHERE player_details.player_id = ${playerId};`
+  const playerStat = await db.all(getPlayerStats)
+  response.send(convertBDObjectAndServer(playerStat))
+})
+
+module.exports = app
